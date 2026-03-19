@@ -1,9 +1,9 @@
 /*
   This file is a part of KMC software distributed under GNU GPL 3 licence.
   The homepage of the KMC project is http://sun.aei.polsl.pl/kmc
-  
+
   Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
-  
+
   Version: 3.2.4
   Date   : 2024-02-09
 */
@@ -12,6 +12,8 @@
 #include "kb_completer.h"
 #include "critical_error_handler.h"
 #include <sstream>
+// Fork: Required for flat_buf byte accumulator in ProcessBinsFirstStage.
+#include <vector>
 
 using namespace std;
 
@@ -127,6 +129,29 @@ void CKmerBinCompleter::ProcessBinsFirstStage()
 		}
 	}
 
+	// Fork: Pre-compute record layout constants for the raw packed accumulator.
+	//       kmer_suf_bytes: bytes encoding (kmer_len - lut_prefix_len) suffix bases.
+	//       rec_stride:     total bytes per record (suffix bytes + counter bytes).
+	//       Used only when without_output == true.
+	uint32_t kmer_suf_bytes = 0;
+	uint32_t rec_stride     = 0;
+	if (without_output && output_type == OutputType::KMC)
+	{
+		uint32_t suffix_bases = (uint32_t)kmer_len - lut_prefix_len;
+		kmer_suf_bytes = (suffix_bases + 3) / 4;
+		rec_stride     = kmer_suf_bytes + (uint32_t)counter_size;
+
+		// Store layout metadata into members so GetKmerTable() can pass them
+		// to the caller (_core.cpp) for decoding.
+		if (!kmer_table_meta_stored)
+		{
+			kmer_suf_bytes_out     = kmer_suf_bytes;
+			counter_size_out       = (uint32_t)counter_size;
+			lut_prefix_len_out     = lut_prefix_len;
+			kmer_table_meta_stored = true;
+		}
+	}
+
 	// Process priority queue of ready-to-output bins
 	while (!kq->empty())
 	{
@@ -172,7 +197,7 @@ void CKmerBinCompleter::ProcessBinsFirstStage()
 			else if (output_type == OutputType::KFF)
 			{
 				uint32_t rec_size = (kmer_len + 3) / 4 + counter_size;
-				for (auto& e : data_packs)									
+				for (auto& e : data_packs)								
 					kff_writer->StoreWholeSection(data + e.first, (e.second - e.first) / rec_size);
 			}
 			else
@@ -182,6 +207,75 @@ void CKmerBinCompleter::ProcessBinsFirstStage()
 				CCriticalErrorHandler::Inst().HandleCriticalError(ostr.str());
 			}
 			
+		}
+		// Fork: When without_output==true, accumulate raw packed bytes into
+		//       packed_buf and prefix_buf instead of decoding to ACGT strings.
+		//       No ACGT decoding happens here — _core.cpp decodes directly into
+		//       numpy buffers, eliminating all intermediate std::string allocations.
+		else if (output_type == OutputType::KMC && rec_stride > 0)
+		{
+			// Flatten data_packs into a contiguous buffer for O(1) record access.
+			// data_packs may contain multiple disjoint byte ranges per bin.
+			std::vector<uchar> flat_buf;
+			{
+				uint64_t total_bytes = 0;
+				for (auto& e : data_packs)
+					total_bytes += (e.second - e.first);
+				flat_buf.reserve(total_bytes);
+				for (auto& e : data_packs)
+					flat_buf.insert(flat_buf.end(), data + e.first, data + e.second);
+			}
+
+			const uchar* rec_base = flat_buf.data();
+			uint64_t     rec_pos  = 0;
+
+			if (lut_prefix_len == 0)
+			{
+				// Fork: Special case — lut_prefix_len=0 means no prefix/suffix split.
+				// The full k-mer is stored in data_packs as flat records.
+				// lut[0] holds the total record count but lut_recs=0, so the normal
+				// LUT walk would skip all records. Walk data_packs directly instead.
+				// All records get prefix_idx=0 (single slot, full k-mer in rec_base).
+				const uint64_t n_recs_bin = flat_buf.size() / rec_stride;
+				for (uint64_t r = 0; r < n_recs_bin; ++r)
+				{
+					if (rec_pos + rec_stride > flat_buf.size())
+						break;
+
+					packed_buf.insert(packed_buf.end(),
+					                  rec_base + rec_pos,
+					                  rec_base + rec_pos + rec_stride);
+					prefix_buf.push_back(0);  // prefix_idx=0: full k-mer, no prefix
+					rec_pos += rec_stride;
+				}
+			}
+			else
+			{
+				const uint64_t* ulut = reinterpret_cast<const uint64_t*>(lut);
+
+				// Walk LUT prefix slots and accumulate raw records.
+				// Each record = kmer_suf_bytes raw suffix bytes + counter_size count bytes.
+				// One prefix_idx stored per record in prefix_buf.
+				for (uint64_t prefix_idx = 0; prefix_idx < lut_recs; ++prefix_idx)
+				{
+					uint64_t delta = ulut[prefix_idx]; // records with this prefix
+					for (uint64_t r = 0; r < delta; ++r)
+					{
+						if (rec_pos + rec_stride > flat_buf.size())
+							break; // guard: malformed bin, should not happen
+
+						// Fork: Append raw bytes as-is — no decoding.
+						packed_buf.insert(packed_buf.end(),
+						                  rec_base + rec_pos,
+						                  rec_base + rec_pos + rec_stride);
+
+						// Fork: Store prefix index for this record.
+						prefix_buf.push_back(prefix_idx);
+
+						rec_pos += rec_stride;
+					}
+				}
+			}
 		}
 
 		memory_bins->free(bin_id, CMemoryBins::mba_suffix);

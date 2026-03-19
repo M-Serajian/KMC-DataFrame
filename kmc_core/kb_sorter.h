@@ -1028,32 +1028,24 @@ template <unsigned SIZE> void CKmerBinSorter<SIZE>::CompactKxmers()
 						if (count > counter_max)
 							count = counter_max;
 
-						if (!without_output)
+						// Fork: write records regardless of without_output (needed for RAM table)
+						if(output_type == OutputType::KMC)
 						{
-							if(output_type == OutputType::KMC)
-							{
-								lut[kmer.remove_suffix(2 * kmer_symbols)]++;
-								// Store compacted kmer
+							lut[kmer.remove_suffix(2 * kmer_symbols)]++;
+							// Store compacted kmer
 
-								for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-									out_buffer[out_pos++] = kmer.get_byte(j);
-								for (int32 j = 0; j < (int32)counter_size; ++j)
-									out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-							}
-							else if (output_type == OutputType::KFF)
-							{
-								for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-									out_buffer[out_pos++] = kmer.get_byte(j);
+							for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+								out_buffer[out_pos++] = kmer.get_byte(j);
+							for (int32 j = 0; j < (int32)counter_size; ++j)
+								out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
+						}
+						else if (output_type == OutputType::KFF)
+						{
+							for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+								out_buffer[out_pos++] = kmer.get_byte(j);
 
-								for (int32 j = (int32)counter_size - 1; j >= 0; --j)
-									out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-							}
-							else
-							{
-								std::ostringstream ostr;
-								ostr << "Error: not implemented, plase contact authors showing this message" << __FILE__ << "\t" << __LINE__;
-								CCriticalErrorHandler::Inst().HandleCriticalError(ostr.str());
-							}
+							for (int32 j = (int32)counter_size - 1; j >= 0; --j)
+								out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
 						}
 					}
 					count = kxmer_counters[counter_pos];
@@ -1074,35 +1066,28 @@ template <unsigned SIZE> void CKmerBinSorter<SIZE>::CompactKxmers()
 				if (count > counter_max)
 					count = counter_max;
 
-				if (!without_output)
+				// Fork: write records regardless of without_output
+				if (output_type == OutputType::KMC)
 				{
-					if (output_type == OutputType::KMC)
-					{
-						lut[kmer.remove_suffix(2 * kmer_symbols)]++;
-						// Store compacted kmer
+					lut[kmer.remove_suffix(2 * kmer_symbols)]++;
+					// Store compacted kmer
 
-						for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-							out_buffer[out_pos++] = kmer.get_byte(j);
-						for (int32 j = 0; j < (int32)counter_size; ++j)
-							out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-					}
-					else if (output_type == OutputType::KFF)
-					{
-						for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-							out_buffer[out_pos++] = kmer.get_byte(j);
-						for (int32 j = (int32)counter_size - 1; j >= 0; --j)
-							out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-					}
-					else
-					{
-						std::ostringstream ostr;
-						ostr << "Error: not implemented, plase contact authors showing this message" << __FILE__ << "\t" << __LINE__;
-						CCriticalErrorHandler::Inst().HandleCriticalError(ostr.str());
-					}
+					for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+						out_buffer[out_pos++] = kmer.get_byte(j);
+					for (int32 j = 0; j < (int32)counter_size; ++j)
+						out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
+				}
+				else if (output_type == OutputType::KFF)
+				{
+					for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+						out_buffer[out_pos++] = kmer.get_byte(j);
+					for (int32 j = (int32)counter_size - 1; j >= 0; --j)
+						out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
 				}
 			}
 
-			if(!without_output)
+			// Fork: always populate output_packs_desc for in-memory decoder
+			if(!without_output || out_pos > 0)
 				output_packs_desc.emplace_back(0, out_pos);
 		}
 
@@ -1190,32 +1175,24 @@ template <unsigned SIZE> void CKmerBinSorter<SIZE>::CompactKmers()
 					if (count > counter_max)
 						count = counter_max;
 
-					if (!without_output)
+					// Fork: write records regardless of without_output
+					if (output_type == OutputType::KMC)
 					{
-						if (output_type == OutputType::KMC)
-						{
-							// Store compacted kmer
-							for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-								out_buffer[out_pos++] = act_kmer->get_byte(j);
-							for (int32 j = 0; j < (int32)counter_size; ++j)
-								out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
+						// Store compacted kmer
+						for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+							out_buffer[out_pos++] = act_kmer->get_byte(j);
+						for (int32 j = 0; j < (int32)counter_size; ++j)
+							out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
 
-							lut[act_kmer->remove_suffix(2 * kmer_symbols)]++;
-						}
-						else if (output_type == OutputType::KFF)
-						{
-							for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-								out_buffer[out_pos++] = act_kmer->get_byte(j);
+						lut[act_kmer->remove_suffix(2 * kmer_symbols)]++;
+					}
+					else if (output_type == OutputType::KFF)
+					{
+						for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+							out_buffer[out_pos++] = act_kmer->get_byte(j);
 
-							for (int32 j = (int32)counter_size - 1; j >= 0; --j)
-								out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-						}
-						else
-						{
-							std::ostringstream ostr;
-							ostr << "Error: not implemented, plase contact authors showing this message" << __FILE__ << "\t" << __LINE__;
-							CCriticalErrorHandler::Inst().HandleCriticalError(ostr.str());
-						}
+						for (int32 j = (int32)counter_size - 1; j >= 0; --j)
+							out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
 					}
 					act_kmer = &buffer[i];
 					count = 1;
@@ -1237,37 +1214,33 @@ template <unsigned SIZE> void CKmerBinSorter<SIZE>::CompactKmers()
 			if (count > counter_max)
 				count = counter_max;
 
-			if (!without_output)
+			// Fork: write records regardless of without_output
+			if (output_type == OutputType::KMC)
 			{
-				if (output_type == OutputType::KMC)
-				{
-					// Store compacted kmer
-					for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-						out_buffer[out_pos++] = act_kmer->get_byte(j);
-					for (int32 j = 0; j < (int32)counter_size; ++j)
-						out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
+				// Store compacted kmer
+				for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+					out_buffer[out_pos++] = act_kmer->get_byte(j);
+				for (int32 j = 0; j < (int32)counter_size; ++j)
+					out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
 
-					lut[act_kmer->remove_suffix(2 * kmer_symbols)]++;
-				}
-				else if (output_type == OutputType::KFF)
-				{
-					for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-						out_buffer[out_pos++] = act_kmer->get_byte(j);
-					for (int32 j = (int32)counter_size - 1; j >= 0; --j)
-						out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-				}
-				else
-				{
-					std::ostringstream ostr;
-					ostr << "Error: not implemented, plase contact authors showing this message" << __FILE__ << "\t" << __LINE__;
-					CCriticalErrorHandler::Inst().HandleCriticalError(ostr.str());
-				}
+				lut[act_kmer->remove_suffix(2 * kmer_symbols)]++;
+			}
+			else if (output_type == OutputType::KFF)
+			{
+				for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+					out_buffer[out_pos++] = act_kmer->get_byte(j);
+				for (int32 j = (int32)counter_size - 1; j >= 0; --j)
+					out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
 			}
 		}
 		n_unique++;
 	}
 	list<pair<uint64, uint64>> data_packs;
-	if(!without_output)
+	// Fork: always populate data_packs so the in-memory decoder in
+	//       CKmerBinCompleter::ProcessBinsFirstStage can read the packed
+	//       records when without_output==true.  The original code skipped
+	//       this under without_output, leaving data_packs empty.
+	if(!without_output || out_pos > 0)
 		data_packs.emplace_back(0, out_pos);
 	// Push the sorted and compacted kmer bin to a priority queue in a form ready to be stored to HDD
 	kq->push(bin_id, out_buffer, data_packs, raw_lut, lut_size, n_unique, n_cutoff_min, n_cutoff_max, n_total);

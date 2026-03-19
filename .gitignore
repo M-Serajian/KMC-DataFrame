@@ -1,55 +1,88 @@
-# Windows image file caches
-Thumbs.db
-ehthumbs.db
+# ==============================================================================
+# KMC-DataFrame .gitignore
+# ==============================================================================
 
-# Folder config file
-Desktop.ini
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+.eggs/
 
-# Recycle Bin used on file shares
-$RECYCLE.BIN/
+# ── C/C++ build artifacts ─────────────────────────────────────────────────────
+*.o
+*.a
+*.lo
+*.la
 
-# Windows Installer files
-*.cab
-*.msi
-*.msm
-*.msp
+# ── KMC build outputs ─────────────────────────────────────────────────────────
+bin/
+include/
 
-# =========================
-# Operating System Files
-# =========================
+# ── pip / scikit-build-core ───────────────────────────────────────────────────
+_skbuild/
+*.whl
+wheelhouse/
 
-# OSX
-# =========================
+# ── Compiled Python extension (built artifact, not source) ───────────────────
+kmcpy/_core*.so
+kmcpy/_core*.pyd
 
+# ── Temp / scratch ────────────────────────────────────────────────────────────
+*.tmp
+*.temp
+kmcpy_*/
+build/*
+
+# ── Makefile backup (created by conda_setup.py) ───────────────────────────────
+Makefile.original
+
+# ── Testing: compiled binaries and profiling artifacts ───────────────────────
+/testing/test_kmc_ram
+/testing/strace_out.txt
+/testing/strace_raw.txt
+/testing/io_profile.sh
+/testing/tmp/
+/testing/*.kmc_pre
+/testing/*.kmc_suf
+/testing/wrapper.py
+/testing/*
+
+# ── Editors ───────────────────────────────────────────────────────────────────
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# Icon must end with two \r
-Icon
-
-# Thumbnails
+Icon
 ._*
-
-# Files that might appear on external disk
 .Spotlight-V100
 .Trashes
-
-# Directories potentially created on remote AFP share
 .AppleDB
 .AppleDesktop
 Network Trash Folder
 Temporary Items
 .apdisk
 
-# Object files
-*.o
+# ── Windows ───────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
 
-# Binaries
-bin/
-
-# Editor backup filels
-*~
+# ── Visual Studio ─────────────────────────────────────────────────────────────
 /.vs/kmc/v17
 /.vs/kmc/FileContentIndex
 /.vs

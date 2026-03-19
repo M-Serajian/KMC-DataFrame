@@ -1,0 +1,77 @@
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+                            Preamble
+
+  The GNU General Public License is a free, copyleft license for
+software and other kinds of works.
+
+  For the exact terms and conditions of this license, see:
+  https://www.gnu.org/licenses/gpl-3.0.txt
+
+-------------------------------------------------------------------------------
+
+kmcpy — Python bindings for KMC k-mer counter (in-memory fork)
+Copyright (C) 2024  kmcpy contributors
+
+Based on KMC 3.2.4:
+Copyright (C) 2024  Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
+Homepage: https://github.com/refresh-bio/KMC
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+-------------------------------------------------------------------------------
+
+ADDITIONAL TERMS (GPL v3, Section 7):
+
+  The following additional terms apply to kmcpy modifications only
+  (files in kmcpy/, CMakeLists.txt, conda_setup.py, diagnostics/,
+  tests/kmcpy/). These terms do not apply to the original KMC source
+  files in kmc_core/, kmc_api/, kmc_CLI/, kmc_tools/, kmc_dump/.
+
+  Attribution: Any publication, software, or derivative work that uses
+  kmcpy must cite the original KMC papers:
+
+    Kokot M, Dlugosz M, Deorowicz S (2017) KMC 3: counting and
+    manipulating k-mer statistics. Bioinformatics 33(17):2759-2761.
+    https://doi.org/10.1093/bioinformatics/btx304
+
+-------------------------------------------------------------------------------
+
+NO WARRANTY (GPL v3, Sections 15-16):
+
+  THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY
+APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT
+HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY
+OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM
+IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF
+ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+
+  IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
+WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS
+THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY
+GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE
+USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF
+DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD
+PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS),
+EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES.
+
+  For the complete license text see: https://www.gnu.org/licenses/gpl-3.0.txt

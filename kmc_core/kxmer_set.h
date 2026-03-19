@@ -435,24 +435,25 @@ public:
 						if (count > counter_max)
 							count = counter_max;
 
-						if (!without_output)
+						// Fork: always write to out_buffer for KMC format (needed for in-memory path)
+						if (output_type == OutputType::KMC)
 						{
-							if (output_type == OutputType::KMC)
-							{
-								uint64 prefix = kmer.remove_suffix(suffix_len_bits);
-								if (prefix == last_prefix)
-									++last_prefix_n_recs;
-								else if (prefix == first_prefix)
-									++first_prefix_n_recs;
-								else
-									++lut[prefix];
+							uint64 prefix = kmer.remove_suffix(suffix_len_bits);
+							if (prefix == last_prefix)
+								++last_prefix_n_recs;
+							else if (prefix == first_prefix)
+								++first_prefix_n_recs;
+							else
+								++lut[prefix];
 
-								for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-									out_buffer[out_pos++] = kmer.get_byte(j);
-								for (int32 j = 0; j < (int32)counter_size; ++j)
-									out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-							}
-							else if (output_type == OutputType::KFF)
+							for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+								out_buffer[out_pos++] = kmer.get_byte(j);
+							for (int32 j = 0; j < (int32)counter_size; ++j)
+								out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
+						}
+						else if (!without_output)
+						{
+							if (output_type == OutputType::KFF)
 							{
 								for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
 									out_buffer[out_pos++] = kmer.get_byte(j);
@@ -484,24 +485,25 @@ public:
 				if (count > counter_max)
 					count = counter_max;
 
-				if (!without_output)
+				// Fork: always write to out_buffer for KMC format (needed for in-memory path)
+				if (output_type == OutputType::KMC)
 				{
-					if (output_type == OutputType::KMC)
-					{
-						uint64 prefix = kmer.remove_suffix(suffix_len_bits);
-						if (prefix == last_prefix)
-							++last_prefix_n_recs;
-						else if (prefix == first_prefix)
-							++first_prefix_n_recs;
-						else
-							++lut[prefix];
+					uint64 prefix = kmer.remove_suffix(suffix_len_bits);
+					if (prefix == last_prefix)
+						++last_prefix_n_recs;
+					else if (prefix == first_prefix)
+						++first_prefix_n_recs;
+					else
+						++lut[prefix];
 
-						for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
-							out_buffer[out_pos++] = kmer.get_byte(j);
-						for (int32 j = 0; j < (int32)counter_size; ++j)
-							out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
-					}
-					else if (output_type == OutputType::KFF)
+					for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
+						out_buffer[out_pos++] = kmer.get_byte(j);
+					for (int32 j = 0; j < (int32)counter_size; ++j)
+						out_buffer[out_pos++] = (count >> (j * 8)) & 0xFF;
+				}
+				else if (!without_output)
+				{
+					if (output_type == OutputType::KFF)
 					{
 						for (int32 j = (int32)kmer_bytes - 1; j >= 0; --j)
 							out_buffer[out_pos++] = kmer.get_byte(j);
@@ -517,13 +519,15 @@ public:
 					}
 				}
 			}
-			if (!without_output)
+			// Fork: always push packs for KMC format so completer sees the data
+			if(output_type == OutputType::KMC)
 			{
-				if(output_type == OutputType::KMC)
-				{
-					lut_updater.UpdateLut(last_prefix, last_prefix_n_recs);
-					lut_updater.UpdateLut(first_prefix, first_prefix_n_recs);
-				}
+				lut_updater.UpdateLut(last_prefix, last_prefix_n_recs);
+				lut_updater.UpdateLut(first_prefix, first_prefix_n_recs);
+				packs.emplace_back(out_start, out_pos);
+			}
+			else if (!without_output)
+			{
 				packs.emplace_back(out_start, out_pos);
 			}
 		}

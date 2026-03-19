@@ -15,6 +15,8 @@
 #include <string>
 #include <memory>
 #include <thread>
+// Fork: Required for raw packed k-mer buffers in Stage2Results.
+#include <cstdint>
 
 
 #define DEVELOP_MODE
@@ -117,7 +119,11 @@ namespace KMC
 		bool homopolymerCompressed = false;
 		InputFileType inputFileType = InputFileType::FASTQ;
 		bool canonicalKmers = true;
-		bool ramOnlyMode = false;
+		// Fork: Force all intermediate bin files to reside in RAM only, never touch disk.
+		//       Original default was false (disk-backed bins).
+		//       Setting true activates CMemDiskFile memory_mode path in CTmpFilesOwner.
+		// bool ramOnlyMode = false;
+		bool ramOnlyMode = true;
 		uint32_t nBins = 512;
 		uint32_t nReaders = 0;
 		uint32_t nSplitters = 0;
@@ -186,7 +192,12 @@ namespace KMC
 		uint64_t cutoffMax = 1000000000;		
 		std::string outputFileName;
 		OutputFileType outputFileType = OutputFileType::KMC;
-		bool withoutOutput = false;
+		// Fork: Suppress writing the final .kmc_pre / .kmc_suf database files to disk.
+		//       Original default was false (files were written).
+		//       Setting true causes CKmerBinCompleter to skip all fopen/fwrite/fclose calls
+		//       while accumulating raw packed k-mer bytes into packedKmers/prefixArray.
+		// bool withoutOutput = false;
+		bool withoutOutput = true;
 		uint32_t strictMemoryNSortingThreadsPerSorters = 0;
 		uint32_t strictMemoryNUncompactors = 0;
 		uint32_t strictMemoryNMergers = 0;
@@ -240,6 +251,29 @@ namespace KMC
 		uint64_t nAboveCutoffMax{};
 		uint64_t nTotalKmers{}; //TODO: this can be get after first stage, maybe changed
 		uint64_t nUniqueKmers{};
+
+		// Fork: Raw packed k-mer table — replaces the old kmerTable (vector<pair<string,uint32>>).
+		//       No ACGT decoding in C++. Decoding happens in kmcpy/_core.cpp directly
+		//       into numpy uint8 buffers, eliminating all intermediate std::string allocations.
+		//
+		//       packedKmers layout (flat byte array):
+		//         Each record = kmerSufBytes bytes (2-bit packed suffix, MSB first)
+		//                     + counterSize bytes (little-endian count)
+		//         Total records = nUniqueKmers
+		//
+		//       prefixArray: one uint64_t per record.
+		//         The raw LUT row index (prefix_idx) encoding lutPrefixLen bases,
+		//         2 bits each, MSB = leftmost base.
+		//         Decode: base[i] = kNuc[(prefix >> (2*(lutPrefixLen-1-i))) & 0x3]
+		//
+		//       Memory saving vs old kmerTable for k=15, 4M k-mers (MTB):
+		//         Old: 4M x (string heap ~48B) = ~192 MB
+		//         New: 4M x (4+1+8)B = ~52 MB   →  3.7x reduction
+		std::vector<uint8_t>  packedKmers;   // flat: [suf_bytes | counter_bytes] * n
+		std::vector<uint64_t> prefixArray;   // one prefix_idx per k-mer record
+		uint32_t kmerSufBytes  = 0;          // suffix bytes per record
+		uint32_t counterSize   = 0;          // counter bytes per record (1 or 2)
+		uint32_t lutPrefixLen  = 0;          // number of prefix bases (2 bits each)
 	};
 
 	

@@ -1,0 +1,125 @@
+# ==============================================================================
+# pyproject.toml -- kmcpy
+#
+# PEP 517/518 compliant Python packaging.
+# Build backend: scikit-build-core  (bridges CMake <-> pip)
+#
+# Install methods:
+#
+#   pip install .                 -- production install
+#   pip install -e .              -- editable / development install
+#   pip install ".[dev]"          -- include dev/test dependencies
+#
+# Downstream projects declare:
+#   [project]
+#   dependencies = ["kmcpy >= 1.0.0"]
+#
+# Then just run:  pip install .
+# ==============================================================================
+
+[build-system]
+# scikit-build-core invokes CMake automatically.
+# cmake and ninja are fetched from PyPI if not present on PATH.
+requires = [
+    "scikit-build-core >= 0.9",
+    "pybind11 >= 2.10",
+]
+build-backend = "scikit_build_core.build"
+
+
+# ==============================================================================
+# Project metadata
+# ==============================================================================
+[project]
+name            = "kmcpy"
+version         = "1.0.0"
+description     = "Python bindings for the KMC k-mer counter -- fully in-memory, hybrid RAM/disk pipeline"
+readme          = "README.md"
+license         = { text = "GPL-3.0" }
+requires-python = ">= 3.8"
+
+authors = [
+    { name = "KMC-DataFrame contributors" },
+]
+
+keywords = [
+    "k-mer", "bioinformatics", "genomics", "KMC",
+    "DNA", "sequencing", "counting",
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
+
+# Runtime Python dependencies -- these are pip-installable
+dependencies = [
+    "numpy  >= 1.24",
+    "pandas >= 2.0",
+]
+
+# Optional dependency groups
+[project.optional-dependencies]
+dev = [
+    "pytest     >= 7.0",
+    "pytest-cov >= 4.0",
+]
+gpu = [
+    # cuDF is not on PyPI -- install separately via conda or RAPIDS
+    # Listed here for documentation purposes only
+]
+
+
+# ==============================================================================
+# scikit-build-core configuration
+# ==============================================================================
+[tool.scikit-build]
+
+# CMake build settings
+# Use RelWithDebInfo to preserve symbol table -- Release strips symbols
+# which prevents runtime linker from resolving weak template symbols.
+cmake.build-type = "RelWithDebInfo"
+
+# Minimum CMake version -- matches our CMakeLists.txt requirement
+cmake.version = ">=3.17"
+
+# Install the kmcpy Python package from the source tree
+wheel.packages = ["kmcpy"]
+
+# Verbose CMake output during build (set to true to debug)
+build.verbose = false
+
+# Editable installs -- build-dir must be set explicitly for rebuild mode.
+# To use editable install with auto-rebuild:
+#   pip install -e . --config-settings=build-dir=build
+# Standard editable install (no auto-rebuild):
+#   pip install -e .
+# editable.rebuild = true   # uncomment only when build-dir is configured
+
+
+# ==============================================================================
+# CMake variables passed through from pyproject.toml
+# ==============================================================================
+[tool.scikit-build.cmake.define]
+# Uncomment to override the build type:
+# CMAKE_BUILD_TYPE = "Release"
+
+
+# ==============================================================================
+# Tool configuration
+# ==============================================================================
+[tool.pytest.ini_options]
+testpaths    = ["testing"]
+python_files = ["test_*.py"]
+addopts      = "-v --tb=short"

@@ -949,6 +949,11 @@ KMC::Stage2Results CKMC<SIZE>::ProcessSmallKOptimization_Stage2()
 	CSmallKCompleter small_k_completer(Params, Queues);
 	small_k_completer.Complete(count_results[0]);
 	small_k_completer.GetTotal(results.nUniqueKmers, results.nBelowCutoffMin, results.nAboveCutoffMax);
+	// Fork: Transfer raw packed k-mer buffers from small-k path into Stage2Results.
+	//       Same interface as the normal path — _core.cpp handles both identically.
+	small_k_completer.GetKmerTable(results.packedKmers, results.prefixArray,
+	                               results.kmerSufBytes, results.counterSize,
+	                               results.lutPrefixLen);
 
 	Queues.pmm_reads->release();
 	Queues.pmm_small_k_buf->release();
@@ -1727,7 +1732,14 @@ template <unsigned SIZE> KMC::Stage2Results CKMC<SIZE>::ProcessStage2_impl()
 
 	// ***** End of Stage 2 *****
 	w_completer->GetTotal(results.nUniqueKmers, results.nBelowCutoffMin, results.nAboveCutoffMax, results.nTotalKmers);
-	
+
+	// Fork: Transfer raw packed k-mer buffers into Stage2Results.
+	//       Updated to match new CWKmerBinCompleter::GetKmerTable signature in kb_completer.h.
+	//       No ACGT strings — decoding happens in kmcpy/_core.cpp into numpy buffers.
+	w_completer->GetKmerTable(results.packedKmers, results.prefixArray,
+	                          results.kmerSufBytes, results.counterSize,
+	                          results.lutPrefixLen);
+
 	uint64 stat_n_plus_x_recs, stat_n_recs, stat_n_recs_tmp, stat_n_plus_x_recs_tmp;
 	stat_n_plus_x_recs = stat_n_recs = stat_n_recs_tmp = stat_n_plus_x_recs_tmp = 0;
 

@@ -1,0 +1,63 @@
+# ==============================================================================
+# environment.yml — kmcpy conda environment
+#
+# For users who prefer conda-based isolation.
+# This is OPTIONAL — pip install . works without conda.
+#
+# Usage:
+#   conda env create -f environment.yml
+#   conda activate kmcpy-env
+#   pip install .
+#
+# For downstream projects that depend on kmcpy, add to their environment.yml:
+#   dependencies:
+#     - pip:
+#       - kmcpy >= 1.0.0
+#
+# To update an existing environment:
+#   conda env update -f environment.yml --prune
+#
+# To export a reproducible lock file (pin exact versions):
+#   conda env export > environment.lock.yml
+# ==============================================================================
+
+name: kmcpy-env
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # ---- C++ build toolchain --------------------------------------------------
+  - gxx_linux-64      >= 12       # g++ compiler (conda-managed, isolated)
+  - binutils          >= 2.40     # ar, ld
+  - make              >= 4.3
+  - cmake             >= 3.17     # scikit-build-core needs 3.17+
+  - ninja             >= 1.11     # fast build backend for cmake
+
+  # ---- C++ runtime and headers ----------------------------------------------
+  - libgcc-ng         >= 12
+  - libstdcxx-ng      >= 12
+  - zlib              >= 1.2.13   # system zlib (KMC also bundles cloudflare zlib)
+
+  # ---- Python ---------------------------------------------------------------
+  - python            >= 3.8
+
+  # ---- Python build tools ---------------------------------------------------
+  - pip               >= 23
+  - pybind11          >= 2.10     # C++/Python bridge headers
+  - scikit-build-core >= 0.9      # pip↔cmake bridge
+
+  # ---- Python runtime dependencies ------------------------------------------
+  - numpy             >= 1.24
+  - pandas            >= 2.0
+
+  # ---- Optional: GPU support (RAPIDS / cuDF) --------------------------------
+  # cuDF is not on conda-forge for all platforms.
+  # Install separately if needed:
+  #   conda install -c rapidsai cudf
+  # - cudf             >= 23.0
+
+  # ---- Development / testing ------------------------------------------------
+  - pytest            >= 7.0
+  - pytest-cov        >= 4.0

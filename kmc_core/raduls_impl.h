@@ -775,27 +775,18 @@ namespace RadulsSort
 			RadixSortMSD_impl<KMER_T, int32>(kmers, tmp, n_recs, byte, n_threads, pmm_radix_buf, true, 2 * n_recs / (3 * n_threads), n_recs);
 	}
 
-	template<unsigned SIZE>
-	class InstantiateTempl
-	{
-		friend class InstantiateTempl<SIZE + 1>;
-		void inst()
-		{
-			volatile auto ptr = RADULS_RADIX_SORT_FUNNAME<CKmer<SIZE>>;
-			(void)ptr; //suppress `unused` warning
-			InstantiateTempl<SIZE - 1>().inst();
-		}
-	};
-
-	template<>
-	class InstantiateTempl<0>
-	{
-		friend class InstantiateTempl<0 + 1>;
-		void inst()
-		{
-		}
-	};
-	template class InstantiateTempl<KMER_WORDS>;
+	// Fork: explicit template instantiations replace the InstantiateTempl trick.
+	// GCC 11+ eliminates inst() as dead code (private, never called) at -O2/-O3,
+	// dropping all template instantiations. Explicit instantiations are a C++
+	// language guarantee -- the compiler must emit them regardless of optimization.
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<1>>(CKmer<1>*, CKmer<1>*, uint64, uint32, uint32, CMemoryPool*);
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<2>>(CKmer<2>*, CKmer<2>*, uint64, uint32, uint32, CMemoryPool*);
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<3>>(CKmer<3>*, CKmer<3>*, uint64, uint32, uint32, CMemoryPool*);
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<4>>(CKmer<4>*, CKmer<4>*, uint64, uint32, uint32, CMemoryPool*);
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<5>>(CKmer<5>*, CKmer<5>*, uint64, uint32, uint32, CMemoryPool*);
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<6>>(CKmer<6>*, CKmer<6>*, uint64, uint32, uint32, CMemoryPool*);
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<7>>(CKmer<7>*, CKmer<7>*, uint64, uint32, uint32, CMemoryPool*);
+	template void RADULS_RADIX_SORT_FUNNAME<CKmer<8>>(CKmer<8>*, CKmer<8>*, uint64, uint32, uint32, CMemoryPool*);
 }
 
 #endif

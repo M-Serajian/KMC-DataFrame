@@ -1,9 +1,9 @@
 /*
   This file is a part of KMC software distributed under GNU GPL 3 licence.
   The homepage of the KMC project is http://sun.aei.polsl.pl/kmc
-  
+
   Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
-  
+
   Version: 3.2.4
   Date   : 2024-02-09
 */
@@ -21,6 +21,9 @@
 #include <stdio.h>
 #include "small_k_buf.h"
 #include "kff_writer.h"
+// Fork: Required for raw packed k-mer accumulator (no ACGT decoding).
+#include <vector>
+#include <cstdint>
 
 //************************************************************************************************************
 // CKmerBinCompleter - complete the sorted bins and store in a file
@@ -43,7 +46,7 @@ class CKmerBinCompleter
 	CMemoryBins *memory_bins;
 
 	bool use_strict_mem;
-	
+
 	CBigBinKmerPartQueue* bbkpq;
 	CMemoryPool *sm_pmm_merger_lut, *sm_pmm_merger_suff;
 
@@ -53,12 +56,30 @@ class CKmerBinCompleter
 	uint32 cutoff_min, cutoff_max;
 	uint32 counter_max;
 	int32 kmer_len;
-	int32 signature_len;	
+	int32 signature_len;
 	bool both_strands;
 	bool without_output;
 	bool store_uint(FILE *out, uint64 x, uint32 size);
 	std::unique_ptr<CKFFWriter> kff_writer;
 	OutputType output_type;
+
+	// Fork: Raw packed k-mer accumulator — no ACGT decoding in C++.
+	//       Decoding happens in _core.cpp directly into numpy buffers.
+	//
+	//       packed_buf layout (flat byte array):
+	//         Each record = kmer_suf_bytes_out bytes (2-bit packed suffix)
+	//                     + counter_size_out bytes (little-endian count)
+	//         Total records = n_unique_kmers
+	//
+	//       prefix_buf: one uint64 per record — the raw LUT row index
+	//         (prefix_idx from the LUT walk), encoding lut_prefix_len_out
+	//         bases, 2 bits each, MSB = leftmost base.
+	std::vector<uint8_t>  packed_buf;
+	std::vector<uint64_t> prefix_buf;
+	uint32_t kmer_suf_bytes_out    = 0;  // suffix bytes per record
+	uint32_t counter_size_out      = 0;  // counter bytes per record
+	uint32_t lut_prefix_len_out    = 0;  // prefix bases (2 bits each)
+	bool     kmer_table_meta_stored = false;
 
 public:
 	CKmerBinCompleter(CKMCParams &Params, CKMCQueues &Queues);
@@ -67,6 +88,23 @@ public:
 	void ProcessBinsSecondStage();
 	void GetTotal(uint64 &_n_unique, uint64 &_n_cutoff_min, uint64 &_n_cutoff_max, uint64 &_n_total);
 	void InitStage2(CKMCParams& Params, CKMCQueues& Queues);
+
+	// Fork: Transfer ownership of the raw packed k-mer buffers to the caller.
+	//       Called from CWKmerBinCompleter::GetKmerTable() after Stage 2.
+	//       Uses move semantics — after this call packed_buf and prefix_buf are empty.
+	//       _core.cpp decodes prefix+suffix → ACGT directly into numpy buffers.
+	void GetKmerTable(std::vector<uint8_t>&  packedKmers,
+	                  std::vector<uint64_t>& prefixArray,
+	                  uint32_t& kmerSufBytes,
+	                  uint32_t& counterSize,
+	                  uint32_t& lutPrefixLen)
+	{
+		packedKmers  = std::move(packed_buf);
+		prefixArray  = std::move(prefix_buf);
+		kmerSufBytes = kmer_suf_bytes_out;
+		counterSize  = counter_size_out;
+		lutPrefixLen = lut_prefix_len_out;
+	}
 };
 
 
@@ -83,6 +121,18 @@ public:
 
 	void GetTotal(uint64 &_n_unique, uint64 &_n_cutoff_min, uint64 &_n_cutoff_max, uint64 &_n_total);
 	void InitStage2(CKMCParams& Params, CKMCQueues& Queues);
+
+	// Fork: Delegate raw packed k-mer buffer transfer to inner CKmerBinCompleter.
+	void GetKmerTable(std::vector<uint8_t>&  packedKmers,
+	                  std::vector<uint64_t>& prefixArray,
+	                  uint32_t& kmerSufBytes,
+	                  uint32_t& counterSize,
+	                  uint32_t& lutPrefixLen)
+	{
+		if (kbc)
+			kbc->GetKmerTable(packedKmers, prefixArray,
+			                  kmerSufBytes, counterSize, lutPrefixLen);
+	}
 };
 
 
@@ -99,11 +149,20 @@ class CSmallKCompleter
 	uint32 kmer_len;
 	int64 mem_tot_small_k_completer;
 	std::string output_file_name;
-	bool both_strands;	
+	bool both_strands;
 	bool without_output;
 	OutputType output_type;
 
 	inline bool store_uint(FILE *out, uint64 x, uint32 size);
+
+	// Fork: Raw packed k-mer accumulator for small-k path.
+	//       kmer.data is already the full packed uint64 key — zero extra processing.
+	std::vector<uint8_t>  packed_buf;   // flat: [suf_bytes | counter_bytes] * n
+	std::vector<uint64_t> prefix_buf;   // one full kmer.data per record (packed key)
+	uint32_t kmer_suf_bytes_out  = 0;
+	uint32_t counter_size_out    = 0;
+	uint32_t lut_prefix_len_out  = 0;
+
 public:
 	inline CSmallKCompleter(CKMCParams& Params, CKMCQueues& Queues);
 
@@ -117,6 +176,20 @@ public:
 	bool CompleteKFFFormat(CSmallKBuf<COUNTER_TYPE> results);
 
 	inline void GetTotal(uint64 &_n_unique, uint64 &_n_cutoff_min, uint64 &_n_cutoff_max);
+
+	// Fork: Transfer raw packed k-mer buffers to caller (same interface as CWKmerBinCompleter).
+	inline void GetKmerTable(std::vector<uint8_t>&  packedKmers,
+	                        std::vector<uint64_t>& prefixArray,
+	                        uint32_t& kmerSufBytes,
+	                        uint32_t& counterSize,
+	                        uint32_t& lutPrefixLen)
+	{
+		packedKmers  = std::move(packed_buf);
+		prefixArray  = std::move(prefix_buf);
+		kmerSufBytes = kmer_suf_bytes_out;
+		counterSize  = counter_size_out;
+		lutPrefixLen = lut_prefix_len_out;
+	}
 
 };
 
@@ -256,6 +329,30 @@ bool CSmallKCompleter::CompleteKMCFormat(CSmallKBuf<COUNTER_TYPE> result)
 						suf_pos = 0;
 					}
 				}
+				// Fork: Accumulate into packed buffers when without_output==true.
+				//       kmer.data IS the full packed uint64 key — no transformation.
+				//       Store as prefix_buf entry; packed_buf holds the count bytes.
+				//       Layout matches CKmerBinCompleter so _core.cpp handles both paths.
+				else
+				{
+					uint64_t cnt_val = result.buf[kmer.data];
+					if (cnt_val > (uint64)counter_max) cnt_val = (uint64)counter_max;
+
+					// Store layout metadata once
+					if (kmer_suf_bytes_out == 0)
+					{
+						kmer_suf_bytes_out = 0;          // small-k: no suffix bytes needed
+						counter_size_out   = (uint32_t)counter_size;
+						lut_prefix_len_out = 0;          // full k-mer in prefix_buf
+					}
+
+					// prefix_buf holds the full packed k-mer integer (kmer.data)
+					prefix_buf.push_back(static_cast<uint64_t>(kmer.data));
+
+					// packed_buf holds only the count (no suffix bytes for small-k)
+					for (uint32_t cb = 0; cb < (uint32_t)counter_size; ++cb)
+						packed_buf.push_back(static_cast<uint8_t>((cnt_val >> (cb * 8)) & 0xFF));
+				}
 			}
 		}
 	}
@@ -314,7 +411,7 @@ bool CSmallKCompleter::CompleteKFFFormat(CSmallKBuf<COUNTER_TYPE> result)
 	uint64 counter_size = 0;
 
 	counter_size = calc_counter_size_ull(cutoff_max, counter_max);
-	
+
 	pmm_small_k_completer->reserve(raw_buffer);
 
 
