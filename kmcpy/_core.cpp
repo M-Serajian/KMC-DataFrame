@@ -191,7 +191,8 @@ static py::dict _count_kmers_internal(
     uint64_t    cutoff_min,
     uint64_t    cutoff_max,
     uint32_t    counter_max,
-    bool        drop_count       // Fork: if true, skip counts_arr entirely
+    bool        drop_count,      // Fork: if true, skip counts_arr entirely
+    bool        need_bases       // Fork: if false, skip kmers_arr (decoded=False path)
 )
 {
     KMC::Stage1Params s1;
@@ -255,23 +256,31 @@ static py::dict _count_kmers_internal(
     // -----------------------------------------------------------------------
     // Allocate output arrays.
     //
-    // kmers_arr  (n, k)        uint8  — per-base 2-bit codes, always allocated
-    // key_words  (n, n_words)  uint64 — packed k-mer key, space-optimal
-    // counts_arr (n,)          uint32 — ONLY allocated when drop_count=false
+    // kmers_arr  (n, k)        uint8  — per-base 2-bit codes.
+    //   ONLY allocated when need_bases=true (decoded=True path).
+    //   When need_bases=false, this is a zero-element array — no allocation,
+    //   no fill, no transfer. Saves n*k bytes at the C++→Python boundary.
+    //   Memory saving: 25 MB per 1M k-mers at k=25.
     //
-    // When drop_count=true:
-    //   counts_arr is a zero-element array — no heap allocation, no fill,
-    //   no transfer overhead.  Saves n*4 bytes at the C++→Python boundary.
-    //   Memory saving: 400 MB per 100M k-mers.
+    // key_words  (n, n_words)  uint64 — packed k-mer key, always built.
+    //   Space-optimal: n_words = ceil(k*2/64).
+    //   Used directly for decoded=False output AND as source for decoded=True.
+    //
+    // counts_arr (n,)          uint32 — ONLY allocated when drop_count=false.
+    //   Memory saving: 400 MB per 100M k-mers when drop_count=true.
     // -----------------------------------------------------------------------
-    py::array_t<uint8_t>  kmers_arr  ({ (py::ssize_t)n, (py::ssize_t)kmer_len });
+    py::array_t<uint8_t>  kmers_arr  ({
+        need_bases ? (py::ssize_t)n : (py::ssize_t)0,
+        need_bases ? (py::ssize_t)kmer_len : (py::ssize_t)0
+    });
     py::array_t<uint64_t> key_words  ({ (py::ssize_t)n, (py::ssize_t)n_words  });
     py::array_t<uint32_t> counts_arr ({
         drop_count ? (py::ssize_t)0 : (py::ssize_t)n
     });
 
     {
-        auto km  = kmers_arr.mutable_unchecked<2>();
+        // km accessor — only valid when need_bases=true
+        uint8_t* km_ptr = need_bases ? kmers_arr.mutable_data() : nullptr;
         auto kw  = key_words.mutable_unchecked<2>();
 
         // counts accessor — only used when drop_count=false.
@@ -293,11 +302,16 @@ static py::dict _count_kmers_internal(
             {
                 kw(i, 0) = prefixes[i];
 
-                uint64_t kdata = prefixes[i];
-                for (int32_t p = (int32_t)kmer_len - 1; p >= 0; --p)
+                // Fill per-base array only when needed (decoded=True)
+                if (km_ptr)
                 {
-                    km(i, p) = static_cast<uint8_t>(kdata & 0x3u);
-                    kdata >>= 2u;
+                    uint64_t kdata = prefixes[i];
+                    uint8_t* row   = km_ptr + i * kmer_len;
+                    for (int32_t p = (int32_t)kmer_len - 1; p >= 0; --p)
+                    {
+                        row[p] = static_cast<uint8_t>(kdata & 0x3u);
+                        kdata >>= 2u;
+                    }
                 }
 
                 // Count — only decode when needed
@@ -318,7 +332,7 @@ static py::dict _count_kmers_internal(
             const uint8_t* rec = packed.data() + i * stride;
             uint64_t pfx       = prefixes[i];
 
-            // --- Build packed key ---
+            // --- Build packed key (always) ---
             buf.clear();
             _fill_key_buffer(buf, pfx, rec,
                              pfx_len, suf_bytes, suf_bases,
@@ -326,20 +340,25 @@ static py::dict _count_kmers_internal(
             for (uint32_t w = 0; w < n_words; ++w)
                 kw(i, w) = buf.word[w];
 
-            // --- Fill per-base array ---
-            for (uint32_t p = 0; p < pfx_len; ++p)
-                km(i, p) = static_cast<uint8_t>(
-                    (pfx >> (2u * (pfx_len - 1u - p))) & 0x3u);
-
-            uint32_t base_idx = pfx_len;
-            for (uint32_t b = 0; b < suf_bytes; ++b)
+            // --- Fill per-base array only when needed (decoded=True) ---
+            if (km_ptr)
             {
-                uint8_t bval = rec[b];
-                km(i, base_idx    ) = (bval >> 6u) & 0x3u;
-                km(i, base_idx + 1) = (bval >> 4u) & 0x3u;
-                km(i, base_idx + 2) = (bval >> 2u) & 0x3u;
-                km(i, base_idx + 3) =  bval         & 0x3u;
-                base_idx += 4u;
+                uint8_t* row = km_ptr + i * kmer_len;
+
+                for (uint32_t p = 0; p < pfx_len; ++p)
+                    row[p] = static_cast<uint8_t>(
+                        (pfx >> (2u * (pfx_len - 1u - p))) & 0x3u);
+
+                uint32_t base_idx = pfx_len;
+                for (uint32_t b = 0; b < suf_bytes; ++b)
+                {
+                    uint8_t bval = rec[b];
+                    row[base_idx    ] = (bval >> 6u) & 0x3u;
+                    row[base_idx + 1] = (bval >> 4u) & 0x3u;
+                    row[base_idx + 2] = (bval >> 2u) & 0x3u;
+                    row[base_idx + 3] =  bval         & 0x3u;
+                    base_idx += 4u;
+                }
             }
 
             // Count — only decode when needed
@@ -419,6 +438,7 @@ PYBIND11_MODULE(_core, m)
         py::arg("cutoff_max")    = 1000000000ULL,
         py::arg("counter_max")   = 65535u,
         py::arg("drop_count")    = false,
+        py::arg("need_bases")    = true,
         "Private — call kmcpy.count_kmers() instead."
     );
 

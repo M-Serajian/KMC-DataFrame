@@ -857,6 +857,7 @@ def count_kmers(
             cutoff_max    = max_count,
             counter_max   = counter_max,
             drop_count    = drop_count,      # Fork: skip counts_arr allocation in C++
+            need_bases    = decoded,          # Fork: skip kmers_arr when decoded=False
         )
 
     finally:
@@ -883,7 +884,11 @@ def count_kmers(
         "drop_count"  : bool(drop_count),
     }
 
-    n = raw["kmers"].shape[0]
+    # n = number of k-mers returned.
+    # key_words is always allocated (n, n_words) regardless of decoded.
+    # kmers_arr is only allocated when decoded=True (need_bases=True),
+    # so use key_words.shape[0] as the authoritative row count.
+    n = raw["key_words"].shape[0]
 
 
     # ------------------------------------------------------------------
@@ -939,17 +944,25 @@ def count_kmers(
             col_dict["count"] = pd.Series(dtype="uint32")
         return pd.DataFrame(col_dict)
 
-    _DECODE   = np.array([65, 67, 71, 84], dtype=np.uint8)   # A C G T
-    ascii_arr = _DECODE[raw["kmers"]]                          # (n, k) uint8
-    kmer_bytes = ascii_arr.view("S{}".format(k)).reshape(n)
-    col_dict = {
-        "kmer": pd.array(kmer_bytes.astype("U{}".format(k)), dtype="string"),
-    }
+    # Optimized decoded path:
+    #
+    # C++ always builds key_words (packed uint64) — the fastest possible
+    # transfer format. When decoded=True, C++ also builds kmers_arr (n,k)
+    # uint8 with 2-bit base codes. We decode those to ACGT strings here.
+    #
+    # Steps:
+    #   1. kmers_arr (n,k) uint8 already holds 2-bit codes — built in C++
+    #   2. Map 2-bit → ASCII in one vectorised numpy step (no Python loop)
+    #   3. View as fixed-width byte strings S{k} — zero-copy
+    #   4. astype(str) — unavoidable: creates n Python str objects
+    #   5. No sort needed — KMC radix sort guarantees lexicographic order
+    _DECODE    = np.array([65, 67, 71, 84], dtype=np.uint8)  # A C G T
+    ascii_arr  = _DECODE[raw["kmers"]]                         # (n, k) uint8
+    kmer_bytes = ascii_arr.view("S{}".format(k)).reshape(n)    # (n,)  bytes
+    col_dict   = {"kmer": kmer_bytes.astype(str)}              # object dtype
     if not drop_count:
         col_dict["count"] = raw["counts"].astype("uint32")
-    df = pd.DataFrame(col_dict)
-    df.sort_values("kmer", ignore_index=True, inplace=True)
-    return df
+    return pd.DataFrame(col_dict)
 
 
 # ---------------------------------------------------------------------------
@@ -993,6 +1006,110 @@ def kmc_version() -> str:
     return __kmc_engine_version__
 
 
+
+def decode_kmers(df: "pd.DataFrame", k: int) -> "pd.DataFrame":
+    """
+    Decode a ``decoded=False`` DataFrame (packed uint64 keys) to ACGT strings.
+
+    When ``count_kmers()`` is called with ``decoded=False``, k-mers are stored
+    as packed uint64 columns (``kmer_0``, ``kmer_1``, ...).  This function
+    converts them to a human-readable DataFrame with a single ``kmer`` (str)
+    column, preserving the ``count`` column if present.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Output of ``count_kmers(..., decoded=False)``.
+        Must contain columns ``kmer_0`` [, ``kmer_1``, ...] and optionally
+        ``count``.
+    k : int
+        k-mer length used when counting.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with columns:
+          - ``kmer``  (object / str) — ACGT string of length k
+          - ``count`` (uint32)       — occurrence count, if present in input
+
+    Examples
+    --------
+    >>> df_packed = kmcpy.count_kmers("genomes.fasta", k=25,
+    ...                               tmp_dir="./tmp", decoded=False)
+    >>> df_str = kmcpy.decode_kmers(df_packed, k=25)
+    >>> print(df_str.head(2))
+                          kmer  count
+    0  AAAAAAAAAAAAAAAAAAAAAAAAA  65535
+    1  AAAAAAAAAAAAAAAAAAAAAAAAC    661
+
+    Notes
+    -----
+    Key layout (from ``KmerKeyBuffer::set_base`` in ``_core.cpp``):
+
+    .. code-block::
+
+        field_bit = total_bits - 2 - 2*p      # bit position from LSB of full integer
+        widx      = n_words - 1 - field_bit // 64  # struct word index
+        col       = widx                           # kmer_col = buf.word[col] directly
+        shift     = field_bit % 64
+
+    The output loop in ``_core.cpp`` maps ``kmer_w = buf.word[w]`` directly,
+    so ``kmer_w`` in the DataFrame IS ``buf.word[w]``.  No reversal is needed.
+
+    This function is O(n*k) in time and O(n*k) in memory, where n is the number
+    of k-mers.  For large k and many k-mers, ``decoded=True`` at count time is
+    faster because the decoding happens in C++.
+    """
+    import numpy as np
+
+    n_words  = len([c for c in df.columns if c.startswith("kmer_")])
+    if n_words == 0:
+        raise ValueError(
+            "No 'kmer_*' columns found. "
+            "Pass a DataFrame returned by count_kmers(..., decoded=False)."
+        )
+
+    key_cols = [f"kmer_{i}" for i in range(n_words)]
+    n        = len(df)
+
+    if n == 0:
+        col_dict: dict = {"kmer": pd.Series(dtype=object)}
+        if "count" in df.columns:
+            col_dict["count"] = pd.Series(dtype="uint32")
+        return pd.DataFrame(col_dict)
+
+    # Stack all word columns: key_arr[:, i] = kmer_i = buf.word[i]
+    key_arr = np.column_stack(
+        [df[c].values.astype(np.uint64) for c in key_cols]
+    )                                                       # (n, n_words)
+
+    # Derive per-base column index and shift from KmerKeyBuffer::set_base.
+    #   field_bit = total_bits - 2 - 2*p
+    #   widx      = n_words - 1 - field_bit // 64   (struct word index)
+    #   col       = widx                             (direct mapping, no reversal)
+    #   shift     = field_bit % 64
+    total_bits    = k * 2
+    p_arr         = np.arange(k, dtype=np.int64)
+    field_bit_arr = total_bits - 2 - 2 * p_arr             # (k,)
+    widx_arr      = n_words - 1 - (field_bit_arr // 64)    # (k,)
+    col_arr       = widx_arr                                # (k,)  direct
+    shift_arr     = (field_bit_arr % 64).astype(np.uint64) # (k,)
+
+    # Extract all bases at once — (n, k) vectorised, no Python loop over rows
+    bases      = ((key_arr[:, col_arr] >> shift_arr) & np.uint64(3)).astype(np.uint8)
+
+    # Map 2-bit codes → ASCII: A=0→65, C=1→67, G=2→71, T=3→84
+    _DECODE    = np.array([65, 67, 71, 84], dtype=np.uint8)
+    ascii_arr  = np.ascontiguousarray(_DECODE[bases])       # (n, k) C-contiguous
+    kmer_bytes = ascii_arr.view(f"S{k}").reshape(n)         # (n,) fixed-width bytes
+    kmer_strs  = kmer_bytes.astype(str)                     # (n,) Python str objects
+
+    col_dict = {"kmer": kmer_strs}
+    if "count" in df.columns:
+        col_dict["count"] = df["count"].values.astype("uint32")
+
+    return pd.DataFrame(col_dict)
+
 # ---------------------------------------------------------------------------
 # Module exports
 # ---------------------------------------------------------------------------
@@ -1001,6 +1118,7 @@ __all__ = [
     "count_kmers",
     "last_run_stats",
     "kmc_version",
+    "decode_kmers",
     "help",
     "__version__",
     "__kmc_engine_version__",
